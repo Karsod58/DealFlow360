@@ -125,6 +125,8 @@ class QuotationUpdate(BaseModel):
 class Quotation(QuotationBase):
     id: int
     quotation_number: str
+    customer_id: Optional[int] = None
+    customer_name: Optional[str] = None
     status: QuotationStatus
     total_value: float
     blended_score: float

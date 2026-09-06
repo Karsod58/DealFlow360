@@ -14,7 +14,7 @@ def get_risk_level(blended_score: float) -> models.RiskLevel:
     """Determine risk level based on blended score."""
     if blended_score == 0:
         return models.RiskLevel.LOW
-    elif blended_score < 10:
+    elif blended_score <= 5:
         return models.RiskLevel.MEDIUM
     else:
         return models.RiskLevel.HIGH

@@ -129,9 +129,7 @@ export function getAccessibleRoutes(role: UserRole): string[] {
   if (hasPermission(PERMISSIONS.canViewQuotations, role)) {
     routes.push('/quotations');
   }
-  if (hasPermission(PERMISSIONS.canViewApprovals, role)) {
-    routes.push('/approvals');
-  }
+  // Approvals route removed - functionality merged into Quotation Detail
   if (hasPermission(PERMISSIONS.canViewFulfillment, role)) {
     routes.push('/fulfillment');
   }
@@ -177,9 +175,7 @@ export function getNavItemsForRole(role: UserRole) {
   if (hasPermission(PERMISSIONS.canViewQuotations, role)) {
     items.push({ path: '/quotations', label: 'Quotations' });
   }
-  if (hasPermission(PERMISSIONS.canViewApprovals, role)) {
-    items.push({ path: '/approvals', label: 'Approvals' });
-  }
+  // Approvals removed - Manager/Finance can approve directly from Quotation Detail page
   if (hasPermission(PERMISSIONS.canViewFulfillment, role)) {
     items.push({ path: '/fulfillment', label: 'Fulfillment' });
   }

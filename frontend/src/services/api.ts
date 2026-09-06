@@ -110,10 +110,16 @@ export const quotationsApi = {
     }
   },
 
-  update: async (id: string, data: Partial<Quotation>): Promise<Quotation> => {
+  update: async (id: number, data: Partial<Quotation>): Promise<Quotation> => {
     return apiRequest<Quotation>(`/quotations/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  },
+
+  submit: async (id: number): Promise<Quotation> => {
+    return apiRequest<Quotation>(`/quotations/${id}/submit`, {
+      method: 'POST',
     });
   },
 
@@ -123,7 +129,7 @@ export const quotationsApi = {
     });
   },
 
-  addLineItem: async (quotationId: string, lineItem: any): Promise<LineItem> => {
+  addLineItem: async (quotationId: number, lineItem: any): Promise<LineItem> => {
     return apiRequest<LineItem>(`/quotations/${quotationId}/line-items`, {
       method: 'POST',
       body: JSON.stringify(lineItem),
@@ -137,7 +143,7 @@ export const quotationsApi = {
     });
   },
 
-  deleteLineItem: async (quotationId: string, lineItemId: string): Promise<void> => {
+  deleteLineItem: async (quotationId: number, lineItemId: number): Promise<void> => {
     return apiRequest<void>(`/quotations/${quotationId}/line-items/${lineItemId}`, {
       method: 'DELETE',
     });
@@ -157,8 +163,23 @@ export const dashboardApi = {
 
 // Products API
 export const productsApi = {
+  getAll: async (): Promise<Product[]> => {
+    return apiRequest<Product[]>('/products');
+  },
+
   getUpsellSuggestions: async (quotationId: string): Promise<Product[]> => {
     return apiRequest<Product[]>(`/products/suggestions/${quotationId}`);
+  },
+};
+
+// Customers API
+export const customersApi = {
+  getAll: async () => {
+    return apiRequest('/admin/customers');
+  },
+
+  getById: async (id: number) => {
+    return apiRequest(`/admin/customers/${id}`);
   },
 };
 

@@ -155,7 +155,23 @@ def get_quotation(
             detail="Quotation not found"
         )
     
-    return quotation
+    # Add customer_name to the response
+    quotation_dict = {
+        "id": quotation.id,
+        "quotation_number": quotation.quotation_number,
+        "customer_id": quotation.customer_id,
+        "customer_name": quotation.customer.name if quotation.customer else "Unknown",
+        "price_list_id": quotation.price_list_id,
+        "status": quotation.status,
+        "total_value": quotation.total_value,
+        "blended_score": quotation.blended_score,
+        "line_items": quotation.line_items,
+        "created_by_id": quotation.created_by_id,
+        "created_at": quotation.created_at,
+        "updated_at": quotation.updated_at,
+    }
+    
+    return quotation_dict
 
 
 @router.put("/{quotation_id}", response_model=schemas.Quotation)

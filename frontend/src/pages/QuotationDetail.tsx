@@ -2,17 +2,20 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { NavBar } from '../components/shared';
 import { RiskScoreBadge } from '../components/quotationDetail';
-import { quotationsApi } from '../services/api';
+import { quotationsApi, approvalsApi } from '../services/api';
 import type { Quotation } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 export function QuotationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [quotation, setQuotation] = useState<Quotation | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [approvalNote, setApprovalNote] = useState<string>('');
 
   useEffect(() => {
     if (id) {
@@ -90,7 +93,8 @@ export function QuotationDetail() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/portal/generate-link/${quotation.id}`, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/api/portal/generate-link/${quotation.id}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -99,7 +103,8 @@ export function QuotationDetail() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate portal link');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate portal link' }));
+        throw new Error(errorData.detail || 'Failed to generate portal link');
       }
 
       const data = await response.json();
@@ -120,6 +125,100 @@ export function QuotationDetail() {
       setSaving(false);
     }
   };
+
+  const handleApprove = async () => {
+    if (!quotation) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await approvalsApi.approve(quotation.id, approvalNote || undefined);
+      setSuccessMessage('✅ Quotation approved successfully!');
+      
+      // Reload quotation to show updated status
+      await loadQuotation(id!);
+      
+      setTimeout(() => {
+        setSuccessMessage(null);
+        navigate('/approvals');
+      }, 2000);
+    } catch (error: any) {
+      console.error('Failed to approve quotation:', error);
+      setError(error.message || 'Failed to approve quotation. Please try again.');
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!quotation) return;
+
+    if (!approvalNote.trim()) {
+      setError('Please provide a reason for rejection');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await approvalsApi.reject(quotation.id, approvalNote);
+      setSuccessMessage('✅ Quotation rejected');
+      
+      // Reload quotation to show updated status
+      await loadQuotation(id!);
+      
+      setTimeout(() => {
+        setSuccessMessage(null);
+        navigate('/approvals');
+      }, 2000);
+    } catch (error: any) {
+      console.error('Failed to reject quotation:', error);
+      setError(error.message || 'Failed to reject quotation. Please try again.');
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReturnToDraft = async () => {
+    if (!quotation) return;
+
+    if (!approvalNote.trim()) {
+      setError('Please provide a reason for returning to draft');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await approvalsApi.returnForRevision(quotation.id, approvalNote);
+      setSuccessMessage('✅ Quotation returned for revision');
+      
+      // Reload quotation to show updated status
+      await loadQuotation(id!);
+      
+      setTimeout(() => {
+        setSuccessMessage(null);
+        navigate('/approvals');
+      }, 2000);
+    } catch (error: any) {
+      console.error('Failed to return quotation:', error);
+      setError(error.message || 'Failed to return quotation. Please try again.');
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Check if current user can approve (MANAGER or FINANCE)
+  const canApprove = user && ['MANAGER', 'FINANCE', 'ADMIN'].includes(user.role);
+  const isPendingApproval = quotation?.status === 'PENDING_APPROVAL';
 
   if (loading) {
     return (
@@ -190,7 +289,7 @@ export function QuotationDetail() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <div className="text-sm text-dark-muted mb-1">Customer Name</div>
-              <div className="text-lg font-semibold text-dark-text">{quotation.customer_name || 'N/A'}</div>
+              <div className="text-lg font-semibold text-white">{quotation.customer_name || 'N/A'}</div>
             </div>
             <div>
               <div className="text-sm text-dark-muted mb-1">Price List</div>
@@ -298,10 +397,10 @@ export function QuotationDetail() {
           )}
         </div>
 
-        {/* Customer Portal Section - Read Only Display */}
-        {quotation.status !== 'DRAFT' && (
+        {/* Customer Portal Section - REP and ADMIN only */}
+        {quotation.status !== 'DRAFT' && user && ['REP', 'ADMIN'].includes(user.role) && (
           <div className="card mb-6 animate-fade-in" style={{ animationDelay: '0.3s' }}>
-            <h2 className="text-xl font-semibold text-dark-text mb-4 flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <span>🔗</span>
               Customer Portal
             </h2>
@@ -316,6 +415,63 @@ export function QuotationDetail() {
               >
                 {saving ? 'Generating...' : '🔗 Generate Portal Link'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Manager/Finance Approval Actions */}
+        {canApprove && isPendingApproval && (
+          <div className="card mb-6 animate-fade-in" style={{ animationDelay: '0.4s' }}>
+            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+              <span>✅</span>
+              Approval Actions
+            </h2>
+            
+            {/* Note Input */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-dark-muted mb-2">
+                Note (optional for approval, required for reject/return)
+              </label>
+              <textarea
+                value={approvalNote}
+                onChange={(e) => setApprovalNote(e.target.value)}
+                placeholder="Enter your comments here..."
+                className="input min-h-[80px] resize-none"
+                disabled={saving}
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={handleApprove}
+                disabled={saving}
+                className="btn-primary bg-success hover:bg-success/80 disabled:opacity-50"
+              >
+                {saving ? 'Processing...' : '✅ Approve'}
+              </button>
+              
+              <button
+                onClick={handleReject}
+                disabled={saving}
+                className="btn-primary bg-danger hover:bg-danger/80 disabled:opacity-50"
+              >
+                {saving ? 'Processing...' : '❌ Reject'}
+              </button>
+              
+              <button
+                onClick={handleReturnToDraft}
+                disabled={saving}
+                className="btn-secondary disabled:opacity-50"
+              >
+                {saving ? 'Processing...' : '↩️ Return to Draft'}
+              </button>
+            </div>
+
+            <div className="mt-3 text-xs text-dark-muted">
+              <p>• <strong>Approve:</strong> Move quotation to APPROVED status</p>
+              <p>• <strong>Reject:</strong> Mark quotation as REJECTED (requires note)</p>
+              <p>• <strong>Return to Draft:</strong> Send back to REP for revision (requires note)</p>
             </div>
           </div>
         )}

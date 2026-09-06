@@ -469,3 +469,73 @@ def delete_user(
     
     return {"success": True, "message": f"User {email} deleted successfully"}
 
+
+
+# ============================================
+# CUSTOMERS MANAGEMENT
+# ============================================
+
+@router.get("/customers", response_model=List[schemas.Customer])
+def get_all_customers(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """
+    Get all customers (All authenticated users can access)
+    """
+    customers = db.query(models.Customer).order_by(models.Customer.name).all()
+    return customers
+
+
+@router.get("/customers/{customer_id}", response_model=schemas.Customer)
+def get_customer(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """
+    Get a specific customer by ID (All authenticated users can access)
+    """
+    customer = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
+    
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    return customer
+
+
+@router.post("/customers", response_model=schemas.Customer)
+def create_customer(
+    customer_data: schemas.CustomerCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """
+    Create a new customer (REP, ADMIN only)
+    """
+    if current_user.role not in [models.UserRole.REP, models.UserRole.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only REP and ADMIN can create customers"
+        )
+    
+    # Check if customer with same email already exists
+    existing = db.query(models.Customer).filter(
+        models.Customer.email == customer_data.email
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer with this email already exists"
+        )
+    
+    new_customer = models.Customer(**customer_data.dict())
+    db.add(new_customer)
+    db.commit()
+    db.refresh(new_customer)
+    
+    return new_customer

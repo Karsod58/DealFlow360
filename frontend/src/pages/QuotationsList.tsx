@@ -76,7 +76,7 @@ export function QuotationsList() {
     setCreatingQuotation(true);
     try {
       const newQuotation = await quotationsApi.create();
-      navigate(`/quotations/${newQuotation.id}`);
+      navigate(`/quotations/${newQuotation.id}/edit`);
     } catch (error) {
       console.error('Failed to create quotation:', error);
       alert('Failed to create quotation. Please try again.');
@@ -124,7 +124,7 @@ export function QuotationsList() {
 
     try {
       // Update on backend
-      await quotationsApi.update(quotationId.toString(), { status: newStatus });
+      await quotationsApi.update(quotationId, { status: newStatus } as Partial<Quotation>);
     } catch (error) {
       console.error('Failed to update quotation status:', error);
       // Revert on error

@@ -81,6 +81,16 @@ export interface Product {
   created_at: string;
 }
 
+// Customer
+export interface Customer {
+  id: number;
+  name: string;
+  email: string;
+  phone?: string | null;
+  company?: string | null;
+  created_at: string;
+}
+
 // Dashboard stats
 export interface DashboardStats {
   pending_approvals: number;

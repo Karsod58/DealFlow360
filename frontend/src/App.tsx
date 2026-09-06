@@ -22,6 +22,7 @@ import {
   Forbidden,
   Reports,
 } from './pages';
+import { NewQuotation } from './pages/NewQuotation';
 
 function App() {
   return (
@@ -51,6 +52,14 @@ function App() {
           element={
             <RequireRole allowedRoles={['REP', 'MANAGER', 'FINANCE', 'ADMIN']}>
               <QuotationsList />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/quotations/:id/edit"
+          element={
+            <RequireRole allowedRoles={['REP', 'ADMIN']}>
+              <NewQuotation />
             </RequireRole>
           }
         />
