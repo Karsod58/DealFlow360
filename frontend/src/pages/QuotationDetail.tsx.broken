@@ -1,0 +1,489 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { NavBar } from '../components/shared';
+import { RiskScoreBadge } from '../components/quotationDetail';
+import { quotationsApi } from '../services/api';
+import type { Quotation } from '../types';
+
+export function QuotationDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (id) {
+      loadQuotation(id);
+    }
+  }, [id]);
+
+  const loadQuotation = async (quotationId: string) => {
+    try {
+      setError(null);
+      const data = await quotationsApi.getById(quotationId);
+      setQuotation(data);
+    } catch (error) {
+      console.error('Failed to load quotation:', error);
+      setError('Failed to load quotation. Redirecting...');
+      setTimeout(() => navigate('/quotations'), 2000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadUpsellProducts = async (quotationId: string) => {
+    try {
+      const products = await // productsApi.getUpsellSuggestions(quotationId);
+      // setUpsellProducts(products);
+    } catch (error) {
+      console.error('Failed to load upsell products:', error);
+      // Don't fail the whole page if upsells don't load
+    }
+  };
+
+  const calculateBlendedScore = (items: any[]): number => {
+    // Sum up all overage points from line items
+    return items.reduce((sum, item) => sum + item.overage, 0);
+  };
+
+  const calculateTotalValue = (items: any[]): number => {
+    return items.reduce((sum, item) => sum + item.line_total, 0);
+  };
+
+  const handleUpdateLineItem = (itemId: number, updates: Partial<LineItem>) => {
+    if (!quotation) return;
+
+    const updatedItems = quotation.line_items.map((item) =>
+      item.id === itemId ? { ...item, ...updates } : item
+    );
+
+    const blendedScore = calculateBlendedScore(updatedItems);
+    const totalValue = calculateTotalValue(updatedItems);
+
+    setQuotation({
+      ...quotation,
+      line_items: updatedItems,
+      blended_score: blendedScore,
+      total_value: totalValue,
+    });
+  };
+
+  const handleRemoveLineItem = (itemId: number) => {
+    if (!quotation) return;
+
+    const updatedItems = quotation.line_items.filter((item) => item.id !== itemId);
+    const blendedScore = calculateBlendedScore(updatedItems);
+    const totalValue = calculateTotalValue(updatedItems);
+
+    setQuotation({
+      ...quotation,
+      line_items: updatedItems,
+      blended_score: blendedScore,
+      total_value: totalValue,
+    });
+  };
+
+  const handleAddProduct = (product: any) => {
+    if (!quotation) return;
+
+    const newLineItem: LineItem = {
+      id: Date.now(), // Temporary ID
+      quotation_id: quotation.id,
+      product_id: product.product_id,
+      product_name: product.name,
+      quantity: 1,
+      unit_price: product.price,
+      discount: product.promo_discount || 0,
+      discount_limit: product.discount_limit,
+      line_total: product.price * (1 - (product.promo_discount || 0) / 100),
+      status: 'OK',
+      overage: 0,
+      created_at: new Date().toISOString(),
+      updated_at: null,
+    };
+
+    const updatedItems = [...quotation.line_items, newLineItem];
+    const blendedScore = calculateBlendedScore(updatedItems);
+    const totalValue = calculateTotalValue(updatedItems);
+
+    setQuotation({
+      ...quotation,
+      line_items: updatedItems,
+      blended_score: blendedScore,
+      total_value: totalValue,
+    });
+  };
+
+  const handleSaveDraft = async () => {
+    if (!quotation) return;
+
+    setSaving(true);
+    setSuccessMessage(null);
+    setError(null);
+    
+    try {
+      await quotationsApi.update(String(quotation.id), quotation);
+      setSuccessMessage('Draft saved successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error('Failed to save draft:', error);
+      setError('Failed to save draft. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!quotation) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      
+      // Call the export API
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/reports/quotations/${quotation.id}/export`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export PDF');
+      }
+
+      // Download the PDF
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quotation_${quotation.quotation_number}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setSuccessMessage('PDF exported successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error('Failed to export PDF:', error);
+      setError('Failed to export PDF. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmitForApproval = async () => {
+    if (!quotation) return;
+
+    // Validation
+    if (!quotation.customer_name.trim()) {
+      setError('Please enter a customer name');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    if (quotation.line_items.length === 0) {
+      setError('Please add at least one line item before submitting');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setSaving(true);
+    setSuccessMessage(null);
+    setError(null);
+    
+    try {
+      const updated = await quotationsApi.submitForApproval(String(quotation.id));
+      setQuotation(updated);
+      
+      if (updated.blended_score === 0) {
+        setSuccessMessage('Quotation auto-approved! (No risk detected)');
+      } else {
+        setSuccessMessage('Quotation submitted for approval');
+      }
+      
+      setTimeout(() => navigate('/quotations'), 2000);
+    } catch (error) {
+      console.error('Failed to submit quotation:', error);
+      setError('Failed to submit quotation. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSendToCustomerPortal = async () => {
+    if (!quotation) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/portal/generate-link/${quotation.id}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate portal link');
+      }
+
+      const data = await response.json();
+      const portalUrl = `${window.location.origin}${data.portal_url}`;
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(portalUrl);
+
+      setSuccessMessage(`✅ Portal link copied to clipboard!\n\n${portalUrl}\n\nShare this link with your customer.`);
+      
+      // Auto-clear success message after 10 seconds
+      setTimeout(() => setSuccessMessage(null), 10000);
+    } catch (error: any) {
+      console.error('Error generating portal link:', error);
+      setError(error.message || 'Failed to generate portal link. Please try again.');
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(value);
+  };
+
+  if (loading) {
+    return (
+      <>
+        <NavBar />
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <div className="text-dark-muted animate-pulse-slow">Loading quotation...</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (!quotation) {
+    return null;
+  }
+
+  return (
+    <>
+      <NavBar />
+      <div className="container mx-auto px-4 py-8">
+        {/* Success/Error Messages */}
+        {successMessage && (
+          <div className="mb-4 p-4 bg-success/10 border border-success rounded-lg text-success animate-fade-in">
+            ✓ {successMessage}
+          </div>
+        )}
+        {error && (
+          <div className="mb-4 p-4 bg-danger/10 border border-danger rounded-lg text-danger animate-fade-in">
+            ⚠ {error}
+          </div>
+        )}
+
+        {/* Page Header */}
+        <div className="mb-8 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-600">
+                Quotation {quotation.quotation_number}
+              </h1>
+              <p className="text-dark-muted mt-2">
+                Review quotation details, line items, and customer information
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <RiskScoreBadge score={quotation.blended_score} />
+              <div className={`px-4 py-2 rounded-lg font-semibold ${
+                quotation.status === 'DRAFT' ? 'bg-gray-500/20 text-gray-300' :
+                quotation.status === 'PENDING_APPROVAL' ? 'bg-yellow-500/20 text-yellow-300' :
+                quotation.status === 'APPROVED' ? 'bg-green-500/20 text-green-300' :
+                quotation.status === 'CONFIRMED' ? 'bg-emerald-500/20 text-emerald-300' :
+                quotation.status === 'REJECTED' ? 'bg-red-500/20 text-red-300' :
+                'bg-blue-500/20 text-blue-300'
+              }`}>
+                {quotation.status.replace('_', ' ')}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Customer and Quotation Info Card */}
+        <div className="card mb-6 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+          <h2 className="text-xl font-semibold text-dark-text mb-4 flex items-center gap-2">
+            <span>👤</span>
+            Customer Information
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <div className="text-sm text-dark-muted mb-1">Customer Name</div>
+              <div className="text-lg font-semibold text-dark-text">{quotation.customer_name || 'N/A'}</div>
+            </div>
+            <div>
+              <div className="text-sm text-dark-muted mb-1">Price List</div>
+              <div className="text-lg font-semibold text-dark-text capitalize">{quotation.price_list_id}</div>
+            </div>
+            <div>
+              <div className="text-sm text-dark-muted mb-1">Created Date</div>
+              <div className="text-lg font-semibold text-dark-text">
+                {new Date(quotation.created_at).toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Line Items Table */}
+        <div className="card mb-6 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+          <h2 className="text-xl font-semibold text-dark-text mb-4 flex items-center gap-2">
+            <span>📦</span>
+            Line Items
+          </h2>
+          
+          {quotation.line_items.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-dark-border">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-dark-muted">Product</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-dark-muted">Quantity</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-dark-muted">Unit Price</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-dark-muted">Discount</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-dark-muted">Line Total</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-dark-muted">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quotation.line_items.map((item, index) => (
+                      <tr 
+                        key={item.id} 
+                        className="border-b border-dark-border/50 hover:bg-dark-border/20 transition-colors"
+                      >
+                        <td className="py-4 px-4">
+                          <div className="font-medium text-dark-text">{item.product_name}</div>
+                          {item.product_id && (
+                            <div className="text-sm text-dark-muted">ID: {item.product_id}</div>
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-right text-dark-text font-medium">
+                          {item.quantity}
+                        </td>
+                        <td className="py-4 px-4 text-right text-dark-text">
+                          {formatCurrency(item.unit_price)}
+                        </td>
+                        <td className="py-4 px-4 text-right">
+                          <span className={`font-semibold ${
+                            item.discount > item.discount_limit ? 'text-warning' : 'text-success'
+                          }`}>
+                            {item.discount.toFixed(1)}%
+                          </span>
+                          <span className="text-dark-muted text-sm ml-1">
+                            (limit: {item.discount_limit}%)
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-right font-semibold text-primary-light">
+                          {formatCurrency(item.line_total)}
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          {item.status === 'OVER' ? (
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-warning/20 text-warning border border-warning/50">
+                              Over Limit
+                            </span>
+                          ) : (
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-success/20 text-success border border-success/50">
+                              OK
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Total */}
+              <div className="mt-6 pt-6 border-t border-dark-border flex justify-between items-center">
+                <div className="text-dark-muted">
+                  <div className="text-sm">Total Items: {quotation.line_items.length}</div>
+                  <div className="text-sm">Risk Score: {quotation.blended_score.toFixed(2)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-dark-muted mb-1">Total Value</div>
+                  <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-400">
+                    {formatCurrency(quotation.total_value)}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="text-6xl mb-4">📦</div>
+              <p className="text-dark-muted text-center text-lg">
+                No line items in this quotation
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Customer Portal Section - Read Only Display */}
+        {quotation.status !== 'DRAFT' && (
+          <div className="card mb-6 animate-fade-in" style={{ animationDelay: '0.3s' }}>
+            <h2 className="text-xl font-semibold text-dark-text mb-4 flex items-center gap-2">
+              <span>🔗</span>
+              Customer Portal
+            </h2>
+            <div className="bg-dark-border/20 rounded-lg p-4">
+              <p className="text-dark-muted text-sm mb-3">
+                Share this quotation with your customer via a secure portal link
+              </p>
+              <button
+                onClick={handleSendToCustomerPortal}
+                disabled={saving}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Generating...' : '🔗 Generate Portal Link'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Back Button */}
+        <div className="flex gap-4 justify-between animate-fade-in" style={{ animationDelay: '0.4s' }}>
+          <button
+            onClick={() => navigate('/quotations')}
+            className="btn-secondary"
+          >
+            ← Back to Quotations
+          </button>
+          
+          {quotation.status === 'DRAFT' && (
+            <button
+              onClick={handleExportPDF}
+              disabled={saving}
+              className="btn-secondary disabled:opacity-50"
+            >
+              📄 Export PDF
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
