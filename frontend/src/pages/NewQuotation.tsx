@@ -246,7 +246,12 @@ export function NewQuotation() {
           </div>
           {quotation.customer_name && (
             <div className="mt-4 p-3 bg-success/10 border border-success/30 rounded-lg text-success">
-              ✓ Selected: {quotation.customer_name}
+              ✓ Currently Assigned: {quotation.customer_name}
+            </div>
+          )}
+          {selectedCustomer && selectedCustomer !== Number(quotation.customer_id) && (
+            <div className="mt-2 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning">
+              ⚠ Click "Update Customer" to save selection: {customers.find(c => c.id === selectedCustomer)?.name}
             </div>
           )}
         </div>

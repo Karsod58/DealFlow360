@@ -48,8 +48,8 @@ def generate_portal_link(
         raise HTTPException(status_code=404, detail="Customer not found")
     
     # Generate or reuse magic token
-    if not customer.portal_magic_token:
-        customer.portal_magic_token = generate_magic_token()
+    # Always regenerate token for security and to override any hardcoded test tokens
+    customer.portal_magic_token = generate_magic_token()
     
     # Set expiration (30 days from now)
     customer.portal_token_expires = datetime.utcnow() + timedelta(days=30)
@@ -104,11 +104,22 @@ def get_portal_quotation(
         )
     
     # Check if token is expired
-    if customer.portal_token_expires and customer.portal_token_expires < datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Portal link has expired. Please request a new link."
-        )
+    if customer.portal_token_expires:
+        # Make datetime timezone-aware for comparison
+        from datetime import timezone
+        now_utc = datetime.now(timezone.utc)
+        # Ensure both datetimes are timezone-aware
+        if customer.portal_token_expires.tzinfo is None:
+            # If stored datetime is naive, assume UTC
+            expires_aware = customer.portal_token_expires.replace(tzinfo=timezone.utc)
+        else:
+            expires_aware = customer.portal_token_expires
+        
+        if expires_aware < now_utc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Portal link has expired. Please request a new link."
+            )
     
     # Get all quotations for this customer
     quotations = db.query(models.Quotation).filter(
@@ -151,6 +162,20 @@ def get_portal_quotation(
     }
 
 
+def check_reapproval_needed(db: Session, quotation: models.Quotation) -> bool:
+    """Check if changes require re-approval based on blended score increase."""
+    from app.routers.quotations import calculate_quotation
+    
+    # Store original score
+    original_score = quotation.blended_score
+    
+    # Recalculate with current line items
+    calculate_quotation(quotation)
+    
+    # If score increased significantly, need re-approval
+    return quotation.blended_score > original_score + 1.0  # 1 point threshold
+
+
 @router.post("/negotiate/{magic_token}/submit")
 def submit_counter_offer(
     magic_token: str,
@@ -174,11 +199,19 @@ def submit_counter_offer(
         )
     
     # Check if token is expired
-    if customer.portal_token_expires and customer.portal_token_expires < datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Portal link has expired"
-        )
+    if customer.portal_token_expires:
+        from datetime import timezone
+        now_utc = datetime.now(timezone.utc)
+        if customer.portal_token_expires.tzinfo is None:
+            expires_aware = customer.portal_token_expires.replace(tzinfo=timezone.utc)
+        else:
+            expires_aware = customer.portal_token_expires
+        
+        if expires_aware < now_utc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Portal link has expired"
+            )
     
     # Get the most recent quotation for this customer
     quotation = db.query(models.Quotation).filter(

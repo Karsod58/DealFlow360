@@ -4,6 +4,7 @@ import { NavBar } from '../components/shared';
 import { KanbanColumn, SearchBar } from '../components/quotations';
 import { quotationsApi } from '../services/api';
 import { useRealtimeUpdates } from '../contexts/WebSocketContext';
+import { useAuth } from '../contexts/AuthContext';
 import type { Quotation, QuotationStatus } from '../types';
 import {
   DndContext,
@@ -26,12 +27,16 @@ const STATUS_COLUMNS: { title: string; status: QuotationStatus }[] = [
 
 export function QuotationsList() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creatingQuotation, setCreatingQuotation] = useState(false);
   const [activeQuotation, setActiveQuotation] = useState<Quotation | null>(null);
+
+  // Only REP and ADMIN can create quotations
+  const canCreateQuotation = user && ['REP', 'ADMIN'].includes(user.role);
 
   // Configure drag sensors
   const sensors = useSensors(
@@ -185,20 +190,22 @@ export function QuotationsList() {
           <div className="flex-1">
             <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
           </div>
-          <button 
-            onClick={handleNewQuotation} 
-            className="btn-primary"
-            disabled={creatingQuotation}
-          >
-            {creatingQuotation ? (
-              <span className="flex items-center">
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
-                Creating...
-              </span>
-            ) : (
-              '+ New Quotation'
-            )}
-          </button>
+          {canCreateQuotation && (
+            <button 
+              onClick={handleNewQuotation} 
+              className="btn-primary"
+              disabled={creatingQuotation}
+            >
+              {creatingQuotation ? (
+                <span className="flex items-center">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
+                  Creating...
+                </span>
+              ) : (
+                '+ New Quotation'
+              )}
+            </button>
+          )}
         </div>
 
         {/* Empty State */}
@@ -209,9 +216,11 @@ export function QuotationsList() {
             <p className="text-dark-muted text-center max-w-md">
               Get started by creating your first quotation
             </p>
-            <button onClick={handleNewQuotation} className="btn-primary mt-4" disabled={creatingQuotation}>
-              {creatingQuotation ? 'Creating...' : '+ Create First Quotation'}
-            </button>
+            {canCreateQuotation && (
+              <button onClick={handleNewQuotation} className="btn-primary mt-4" disabled={creatingQuotation}>
+                {creatingQuotation ? 'Creating...' : '+ Create First Quotation'}
+              </button>
+            )}
           </div>
         ) : (
           /* Kanban Board with Drag-and-Drop */

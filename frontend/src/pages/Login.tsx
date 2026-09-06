@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TextInput, PasswordInput, InfoBanner } from '../components/shared';
+import { TextInput, PasswordInput } from '../components/shared';
 import { authApi, authService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { UserRole } from '../types';
@@ -208,20 +208,6 @@ export function Login() {
               </button>
             )}
           </form>
-        </div>
-
-        {/* Info Banner */}
-        <div className="mt-6 animate-fade-in" style={{ animationDelay: '0.4s' }}>
-          <InfoBanner>
-            <p className="text-sm">
-              After login, internal users land on the Sales Dashboard. Customers land on their Quotation Portal.
-            </p>
-            <ul className="mt-3 space-y-1 text-xs text-yellow-300">
-              <li>• Company / team selector shown for multi-team setups</li>
-              <li>• Basic validation on email and password fields</li>
-              <li>• Sign Up link creates a new internal or customer account</li>
-            </ul>
-          </InfoBanner>
         </div>
       </div>
     </div>

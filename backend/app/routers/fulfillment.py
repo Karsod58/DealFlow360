@@ -14,10 +14,11 @@ def calculate_warehouse_split(
     quotation_id: int
 ) -> List[schemas.FulfillmentCalculation]:
     """
-    Greedy warehouse split algorithm:
-    1. Try to fulfill from single warehouse first (minimize shipments)
-    2. If no single warehouse has enough stock, use greedy allocation
-    3. Track backorders for items that can't be fulfilled
+    Optimal warehouse split algorithm:
+    1. For each line item, find the minimum shipping cost solution
+    2. Compare single warehouse (cheapest) vs multi-warehouse split
+    3. Choose the option with lowest total shipping cost
+    4. Track backorders for items that can't be fulfilled
     """
     quotation = db.query(models.Quotation).filter(
         models.Quotation.id == quotation_id
@@ -53,84 +54,112 @@ def calculate_warehouse_split(
             continue
         
         required_qty = line_item.quantity
-        splits = []
         
-        # Strategy 1: Try single warehouse fulfillment
-        single_warehouse = None
+        # OPTION 1: Single warehouse fulfillment (minimum shipping cost)
+        single_warehouse_options = []
         for stock, warehouse in stock_levels:
             available = stock.in_stock - stock.reserved
             if available >= required_qty:
-                single_warehouse = (stock, warehouse, available)
-                break
+                single_warehouse_options.append({
+                    'stock': stock,
+                    'warehouse': warehouse,
+                    'available': available,
+                    'cost': warehouse.shipping_cost_base
+                })
         
-        if single_warehouse:
-            # Can fulfill from single warehouse
-            stock, warehouse, available = single_warehouse
-            splits.append(schemas.FulfillmentSplitWithWarehouse(
-                warehouse_name=warehouse.name,
-                warehouse_code=warehouse.warehouse_code,
+        # Sort by shipping cost (ascending - cheapest first)
+        single_warehouse_options.sort(key=lambda x: x['cost'])
+        
+        best_single_cost = float('inf')
+        best_single_solution = None
+        
+        if single_warehouse_options:
+            # Use cheapest single warehouse
+            cheapest = single_warehouse_options[0]
+            best_single_cost = cheapest['cost']
+            best_single_solution = [schemas.FulfillmentSplitWithWarehouse(
+                warehouse_name=cheapest['warehouse'].name,
+                warehouse_code=cheapest['warehouse'].warehouse_code,
                 product_name=line_item.product_name,
                 quantity_fulfilled=required_qty,
                 estimated_shipments=1,
-                shipping_cost=warehouse.shipping_cost_base,
+                shipping_cost=cheapest['warehouse'].shipping_cost_base,
                 is_backorder=False
-            ))
-            total_cost = warehouse.shipping_cost_base
-            backorder_qty = 0
-        else:
-            # Strategy 2: Greedy allocation across multiple warehouses
-            # Sort by available quantity (descending) to minimize warehouses used
-            sorted_stock = sorted(
-                [(s, w, s.in_stock - s.reserved) for s, w in stock_levels],
-                key=lambda x: x[2],
-                reverse=True
-            )
-            
-            remaining = required_qty
-            total_cost = 0.0
-            warehouses_used = 0
-            
-            for stock, warehouse, available in sorted_stock:
-                if remaining <= 0:
-                    break
+            )]
+        
+        # OPTION 2: Multi-warehouse split (minimize total shipping cost)
+        # Create list of (stock, warehouse, available, cost_per_unit)
+        available_stock = []
+        for stock, warehouse in stock_levels:
+            available = stock.in_stock - stock.reserved
+            if available > 0:
+                available_stock.append({
+                    'stock': stock,
+                    'warehouse': warehouse,
+                    'available': available,
+                    'cost': warehouse.shipping_cost_base
+                })
+        
+        # Sort by shipping cost per unit (ascending - cheapest first)
+        available_stock.sort(key=lambda x: x['cost'])
+        
+        # Greedy allocation by cost (cheapest warehouses first)
+        multi_splits = []
+        multi_cost = 0.0
+        remaining = required_qty
+        
+        for item in available_stock:
+            if remaining <= 0:
+                break
                 
-                if available > 0:
-                    fulfill_qty = min(available, remaining)
-                    splits.append(schemas.FulfillmentSplitWithWarehouse(
-                        warehouse_name=warehouse.name,
-                        warehouse_code=warehouse.warehouse_code,
-                        product_name=line_item.product_name,
-                        quantity_fulfilled=fulfill_qty,
-                        estimated_shipments=1,
-                        shipping_cost=warehouse.shipping_cost_base,
-                        is_backorder=False
-                    ))
-                    remaining -= fulfill_qty
-                    total_cost += warehouse.shipping_cost_base
-                    warehouses_used += 1
-            
-            backorder_qty = remaining if remaining > 0 else 0
-            
-            # If there's a backorder, add it as a split
-            if backorder_qty > 0:
-                splits.append(schemas.FulfillmentSplitWithWarehouse(
-                    warehouse_name="Backorder",
-                    warehouse_code="BACKORDER",
+            fulfill_qty = min(item['available'], remaining)
+            if fulfill_qty > 0:
+                multi_splits.append(schemas.FulfillmentSplitWithWarehouse(
+                    warehouse_name=item['warehouse'].name,
+                    warehouse_code=item['warehouse'].warehouse_code,
                     product_name=line_item.product_name,
-                    quantity_fulfilled=backorder_qty,
-                    estimated_shipments=0,
-                    shipping_cost=0.0,
-                    is_backorder=True
+                    quantity_fulfilled=fulfill_qty,
+                    estimated_shipments=1,
+                    shipping_cost=item['warehouse'].shipping_cost_base,
+                    is_backorder=False
                 ))
+                remaining -= fulfill_qty
+                multi_cost += item['warehouse'].shipping_cost_base
+        
+        backorder_qty = remaining if remaining > 0 else 0
+        
+        # Add backorder if needed
+        if backorder_qty > 0:
+            multi_splits.append(schemas.FulfillmentSplitWithWarehouse(
+                warehouse_name="Backorder",
+                warehouse_code="BACKORDER",
+                product_name=line_item.product_name,
+                quantity_fulfilled=backorder_qty,
+                estimated_shipments=0,
+                shipping_cost=0.0,
+                is_backorder=True
+            ))
+        
+        # CHOOSE BEST OPTION: Single warehouse vs Multi-warehouse
+        if best_single_solution and best_single_cost <= multi_cost:
+            # Single warehouse is cheaper or equal
+            chosen_splits = best_single_solution
+            chosen_cost = best_single_cost
+            chosen_backorder = 0
+        else:
+            # Multi-warehouse is cheaper
+            chosen_splits = multi_splits
+            chosen_cost = multi_cost
+            chosen_backorder = backorder_qty
         
         results.append(schemas.FulfillmentCalculation(
             quotation_id=quotation_id,
             line_item_id=line_item.id,
             product_name=line_item.product_name,
             total_quantity=line_item.quantity,
-            splits=splits,
-            total_cost=total_cost,
-            backorder_quantity=backorder_qty
+            splits=chosen_splits,
+            total_cost=chosen_cost,
+            backorder_quantity=chosen_backorder
         ))
     
     return results

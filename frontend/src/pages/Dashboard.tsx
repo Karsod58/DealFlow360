@@ -5,9 +5,11 @@ import { StatCard, ActivityFeedItem } from '../components/dashboard';
 import { dashboardApi } from '../services/api';
 import type { DashboardStats, ActivityItem } from '../types';
 import { useRealtimeUpdates } from '../contexts/WebSocketContext';
+import { useAuth } from '../contexts/AuthContext';
 
 export function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [stats, setStats] = useState<DashboardStats>({
     pending_approvals: 0,
     open_quotations: 0,
@@ -18,6 +20,9 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [creatingQuotation, setCreatingQuotation] = useState(false);
   const [showCustomerSelector, setShowCustomerSelector] = useState(false);
+
+  // Only REP and ADMIN can create quotations
+  const canCreateQuotation = user && ['REP', 'ADMIN'].includes(user.role);
 
   useEffect(() => {
     loadDashboardData();
@@ -158,29 +163,31 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Action Buttons with slide animation */}
-        <div className="flex gap-4 mb-8 animate-slide-in-right">
-          <button 
-            onClick={() => setShowCustomerSelector(true)} 
-            className="btn-primary"
-            disabled={creatingQuotation}
-          >
-            {creatingQuotation ? (
-              <span className="flex items-center">
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
-                Creating...
-              </span>
-            ) : (
-              '+ New Quotation'
-            )}
-          </button>
-          <button onClick={() => navigate('/approvals')} className="btn-secondary">
-            View Approvals
-          </button>
-        </div>
+        {/* Action Buttons with slide animation - Only for REP and ADMIN */}
+        {canCreateQuotation && (
+          <div className="flex gap-4 mb-8 animate-slide-in-right">
+            <button 
+              onClick={() => setShowCustomerSelector(true)} 
+              className="btn-primary"
+              disabled={creatingQuotation}
+            >
+              {creatingQuotation ? (
+                <span className="flex items-center">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
+                  Creating...
+                </span>
+              ) : (
+                '+ New Quotation'
+              )}
+            </button>
+            <button onClick={() => navigate('/approvals')} className="btn-secondary">
+              View Approvals
+            </button>
+          </div>
+        )}
 
-        {/* Customer Selector Modal */}
-        {showCustomerSelector && (
+        {/* Customer Selector Modal - Only for REP and ADMIN */}
+        {canCreateQuotation && showCustomerSelector && (
           <CustomerSelector
             onSelect={handleNewQuotation}
             onCancel={() => setShowCustomerSelector(false)}
